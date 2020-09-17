@@ -45,6 +45,8 @@ import TcInteract (solveSimpleGivens)
 import TcSMonad -- (TcS,runTcS)
 import TcEvidence (evBindMapBinds)
 import TcErrors(warnAllUnsolved)
+import qualified TcMType as TcMType
+import IdInfo
 
 import DsMonad
 import DsBinds
@@ -76,7 +78,7 @@ moduleIsOkay env mname = isFound <$> findExposedPackageModule env mname Nothing
 uniqSetToList ::  UniqSet a -> [a]
 uniqSetToList = NonDetSet.nonDetEltsUniqSet
 #endif
--- #define TRACING
+#define TRACING
 
 pprTrace' :: String -> SDoc -> a -> a
 #ifdef TRACING
@@ -134,16 +136,11 @@ buildDictionary' env dflags guts evIds evar =
   do (i, bs) <-
        runTcM env dflags guts $
        do loc <- getCtLocM (GivenOrigin UnkSkol) Nothing
-          let givens = mkGivens loc (uniqSetToList evIds)
-              predTy = varType evar
-              nonC = mkNonCanonical $
-                       CtWanted { ctev_pred = predTy
-                                , ctev_dest = EvVarDest evar
-#if MIN_VERSION_GLASGOW_HASKELL(8,2,0,0)
-                                , ctev_nosh = WOnly
-#endif
-                                , ctev_loc = loc }
-              wCs = mkSimpleWC [cc_ev nonC]
+          let predTy = varType evar
+          evidence <- TcMType.newWanted (GivenOrigin UnkSkol) Nothing predTy
+          let EvVarDest evarDest = ctev_dest evidence
+              givens = mkGivens loc (uniqSetToList evIds)
+              wCs = mkSimpleWC [evidence]
           -- TODO: Make sure solveWanteds is the right function to call.
           traceTc' "buildDictionary': givens" (ppr givens)
           (_wCs', bnds0) <-
@@ -167,16 +164,9 @@ buildDictionary' env dflags guts evIds evar =
           -- warnAllUnsolved _wCs'
           traceTc' "buildDictionary' zonked" (ppr bnds)
           warnAllUnsolved _wCs'
-          return (evar, bnds)
+          return (evarDest, bnds)
      bs' <- runDsM env dflags guts (dsEvBinds bs)
      return (i, bs')
-
--- TODO: Richard Eisenberg: "use TcMType.newWanted to make your CtWanted. As it
--- stands, if predTy is an equality constraint, your CtWanted will be
--- ill-formed, as all equality constraints should have HoleDests, not
--- EvVarDests. Using TcMType.newWanted will simplify and improve your code."
-
--- TODO: Why return the given evar?
 
 -- TODO: Try to combine the two runTcM calls.
 
@@ -189,20 +179,17 @@ buildDictionary env dflags guts inScope goalTy =
    binder = localId inScope name goalTy
    name = "$d" ++ zEncodeString (filter (not . isSpace) (showPpr dflags goalTy))
    scopedDicts = filterVarSet keepVar (getInScopeVars (fst inScope))
+   goalTyVars = tyCoVarsOfType goalTy
    keepVar v =
      -- Occasionally I get "StgCmmEnv: variable not found", so don't keep any.
      -- See 2018-01-23 journal notes. For now, False
      -- TODO: Investigate!
-     False &&
-     isEvVar v -- && not (isDeadBinder v)
+     isEvVar v && not (isDeadBinder v)
      -- Keep evidence that relates to free type variables in the goal.
-     -- && not (isEmptyVarSet (goalTyVars `intersectVarSet` tyCoVarsOfType (varType v))) -- see issue #20
-   -- freeIds = filter isId (uniqSetToList (exprFreeVars dict))
-   -- freeIdTys = varType <$> freeIds
-   -- goalTyVars = tyCoVarsOfType goalTy
+     && not (isEmptyVarSet (goalTyVars `intersectVarSet` tyCoVarsOfType (varType v))) -- see issue #20
    reassemble (i,bnds) =
      -- pprTrace' "buildDictionary" (ppr goalTy $$ text "-->" $$ ppr dict) $
-     -- pprTrace' "buildDictionary inScope" (ppr (fst inScope)) $
+     pprTrace' "buildDictionary inScope" (ppr (fst inScope)) $
      -- pprTrace' "buildDictionary freeIds" (ppr freeIds) $
      -- pprTrace' "buildDictionary (bnds,freeIds)" (ppr (bnds,freeIds)) $
      -- pprTrace' "buildDictionary dict" (ppr dict) $
@@ -211,7 +198,7 @@ buildDictionary env dflags guts inScope goalTy =
     where
       res | null bnds          = Left (text "no bindings")
           | notNull holeyBinds = Left (text "coercion holes: " <+> ppr holeyBinds)
-          | notNull freeIdTys  = Left (text "free id types:" <+> ppr freeIdTys)
+          | not (isEmptyVarSet freeIds) = Left (text "free ids:" <+> ppr freeIds)
           | otherwise          = return $ simplifyE dflags False
                                           dict
       dict =
@@ -225,7 +212,7 @@ buildDictionary env dflags guts inScope goalTy =
       -- parameters. Alternatively, check that there are no free variables (val or
       -- type) in the resulting dictionary that were not in the original type.
       freeIds = filterVarSet isId (exprFreeVars dict) `minusVarSet` scopedDicts
-      freeIdTys = varType <$> uniqSetToList freeIds
+      -- freeIdTys = varType <$> uniqSetToList freeIds
       holeyBinds = filter hasCoercionHole bnds
       -- err doc = Left (doc $$ ppr goalTy $$ text "-->" $$ ppr dict)
 
