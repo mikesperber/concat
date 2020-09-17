@@ -2112,7 +2112,7 @@ instance Pointed h => PointedCat (->) h a where
 --   {-# OPINLINE sumC #-}
 
 instance (Foldable h, Additive a) => AddCat (->) h a where
-  sumAC = sumA  -- not a method, so no IC.inline
+  sumAC = sumAF  -- not a method, so no IC.inline
   {-# OPINLINE sumAC #-}
 
 -- instance (OkFunctor k h, OkFunctor k' h) => OkFunctor (k :**: k') h where

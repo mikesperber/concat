@@ -196,8 +196,9 @@ instance Additive a => Additive (Add a) where
   zero  = mempty
   (^+^) = mappend
 
--- sumA' :: (Foldable h, Additive a) => h a -> a
--- sumA' = getAdd . foldMap Add
+sumAF :: (Foldable h, Additive a) => h a -> a
+sumAF = getAdd . foldMap Add
+{-# OPINLINE sumAF #-}
 
 -- Enables translation of sumA to jamPF in AltCat.
 type SummableF h = (Representable h, Eq (Rep h), Zip h, Pointed h, Foldable h)
