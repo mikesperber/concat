@@ -113,7 +113,12 @@ ReboxB2D((>=##),greaterThanOrEqual)
 ReboxB2D((<=##),lessThanOrEqual)
 
 Rebox1I(negateInt#,negateC)
-Rebox2I((+#),addC)
+-- Rebox2I((+#),addC)
+
+-- Temporarily, to let the linter continue on the deep-learning example:
+
+"boxI +"      [~0] forall u v . boxI (u +# v)            = addC (boxI u,boxI v)
+
 Rebox2I((-#),subC)
 Rebox2I((*#),mulC)
 -- Rebox1(boxD,unboxI,double2Int#,truncate)
