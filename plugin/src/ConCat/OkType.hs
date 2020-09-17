@@ -36,7 +36,7 @@ instance OkType Float
 instance OkType Double
 
 instance KnownNat n => OkType (Finite n)
-instance (KnownNat n, OkType a) => OkType (Vector n a)
+instance (OkType a) => OkType (Vector n a)
 
 instance (OkType a, OkType b) => OkType (a ,  b)
 instance (OkType a, OkType b) => OkType (a -> b)
