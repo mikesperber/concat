@@ -21,6 +21,7 @@ library
   build-depends:    base >=4.9
                   , ghc >= 8.0.1
                   , syb >= 0.6
+                  , bytestring
                   , concat-inline
   ghc-options:      -O2
   exposed-modules:  

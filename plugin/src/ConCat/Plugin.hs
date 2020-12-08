@@ -149,7 +149,7 @@ trying tr str a = tr ("Trying " ++ str) (a `seq` empty) False
 type Cat = Type
 
 polyBail :: Bool
-polyBail = True -- False
+polyBail = False
 
 ccc :: CccEnv -> Ops -> Type -> ReExpr
 -- ccc _ _ _ | pprTrace "ccc" empty False = undefined
@@ -337,7 +337,7 @@ ccc (CccEnv {..}) (Ops {..}) cat =
      Var y | x == y -> Doing("lam Id")
                        return (mkId cat xty)
      Trying("lam Poly const")
-     _ | isConst, not (isFunTy bty), not (isMonoTy bty)
+     _ | polyBail, isConst, not (isFunTy bty), not (isMonoTy bty)
        -> Doing("lam Poly const bail")
           -- dtrace("lam Poly const: bty, isFunTy, isMonoTy") (ppr (bty, isFunTy bty, isMonoTy bty)) $
           Nothing

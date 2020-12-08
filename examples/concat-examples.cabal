@@ -190,6 +190,40 @@ Test-Suite misc-trace
 --                   , concat-classes
 --                   , ghc-typelits-knownnat
 
+Test-Suite ad-examples
+  type:             exitcode-stdio-1.0
+  default-language: Haskell98
+  hs-Source-Dirs:   test
+  main-is:          Autoencoder.hs
+  other-modules:    
+  Build-Depends:    base<5
+                  , Cabal >= 1.24.0.0
+                  , ghc-prim
+                  , constraints >= 0.8
+                  , newtype-generics >= 0.5.3
+                  , pointed, keys
+                  , distributive, adjunctions
+                  , concat-inline
+                  , concat-classes
+                  , concat-plugin
+                  , concat-examples
+                  , ghc-prim
+                  , integer-gmp
+                  , distributive, adjunctions
+                  , constraints >= 0.8
+                  , vector, bytestring
+                  -- Array/vector experiments
+                  , finite-typelits, vector-sized >= 1.0.0.0
+                  , singletons
+                  , ghc-typelits-knownnat
+                  , indexed-list-literals
+                  , random
+                  , cassava
+  ghc-options:      -O2
+                    -fsimpl-tick-factor=1000
+                    -fplugin=ConCat.Plugin
+                    -fplugin=GHC.TypeLits.KnownNat.Solver
+                                         
 Test-Suite gold-tests
   type:             exitcode-stdio-1.0
   default-language: Haskell98
@@ -217,6 +251,7 @@ Test-Suite gold-tests
                   -- Array/vector experiments
                   , finite-typelits, vector-sized >= 1.0.0.0
   ghc-options:      -O2
+                    -freduction-depth=0
                     -fplugin=ConCat.Plugin
   if flag(smt)
     cpp-options:        -DCONCAT_SMT

@@ -82,7 +82,7 @@ moduleIsOkay env mname = isFound <$> findExposedPackageModule env mname Nothing
 uniqSetToList ::  UniqSet a -> [a]
 uniqSetToList = NonDetSet.nonDetEltsUniqSet
 #endif
--- #define TRACING
+#define TRACING
 
 pprTrace' :: String -> SDoc -> a -> a
 #ifdef TRACING
@@ -134,22 +134,16 @@ runDsM :: HscEnv -> DynFlags -> ModGuts -> DsM a -> IO a
 runDsM env dflags guts = runTcM env dflags guts . initDsTc
 
 -- | Build a dictionary for the given id
-buildDictionary' :: HscEnv -> DynFlags -> ModGuts -> VarSet -> Id
+buildDictionary' :: HscEnv -> DynFlags -> ModGuts -> VarSet -> Type
                  -> IO (Id, [CoreBind])
-buildDictionary' env dflags guts evIds evar =
+buildDictionary' env dflags guts evIds predTy =
   do (i, bs) <-
        runTcM env dflags guts $
        do loc <- getCtLocM (GivenOrigin UnkSkol) Nothing
-          let givens = mkGivens loc (uniqSetToList evIds)
-              predTy = varType evar
-              nonC = mkNonCanonical $
-                       CtWanted { ctev_pred = predTy
-                                , ctev_dest = EvVarDest evar
-#if MIN_VERSION_GLASGOW_HASKELL(8,2,0,0)
-                                , ctev_nosh = WOnly
-#endif
-                                , ctev_loc = loc }
-              wCs = mkSimpleWC [cc_ev nonC]
+          evidence <- TcMType.newWanted (GivenOrigin UnkSkol) Nothing predTy
+          let EvVarDest evarDest = ctev_dest evidence
+              givens = mkGivens loc (uniqSetToList evIds)
+              wCs = mkSimpleWC [evidence]
           -- TODO: Make sure solveWanteds is the right function to call.
           traceTc' "buildDictionary': givens" (ppr givens)
           (_wCs', bnds0) <-
@@ -173,16 +167,9 @@ buildDictionary' env dflags guts evIds evar =
           -- warnAllUnsolved _wCs'
           traceTc' "buildDictionary' zonked" (ppr bnds)
           warnAllUnsolved _wCs'
-          return (evar, bnds)
+          return (evarDest, bnds)
      bs' <- runDsM env dflags guts (dsEvBinds bs)
      return (i, bs')
-
--- TODO: Richard Eisenberg: "use TcMType.newWanted to make your CtWanted. As it
--- stands, if predTy is an equality constraint, your CtWanted will be
--- ill-formed, as all equality constraints should have HoleDests, not
--- EvVarDests. Using TcMType.newWanted will simplify and improve your code."
-
--- TODO: Why return the given evar?
 
 -- TODO: Try to combine the two runTcM calls.
 
@@ -190,18 +177,14 @@ buildDictionary :: HscEnv -> DynFlags -> ModGuts -> InScopeEnv -> Type -> IO (Ei
 buildDictionary env dflags guts inScope goalTy =
   pprTrace' "\nbuildDictionary" (ppr goalTy) $
   pprTrace' "buildDictionary in-scope evidence" (ppr (WithType . Var <$> uniqSetToList scopedDicts)) $
-  reassemble <$> buildDictionary' env dflags guts scopedDicts binder
+  reassemble <$> buildDictionary' env dflags guts scopedDicts goalTy
  where
-   binder = localId inScope name goalTy
-   name = "$d" ++ zEncodeString (filter (not . isSpace) (showPpr dflags goalTy))
    scopedDicts = filterVarSet keepVar (getInScopeVars (fst inScope))
+   goalTyVars = tyCoVarsOfType goalTy
    keepVar v =
      isEvVar v && not (isDeadBinder v) && not (isMarkedDictId v)
      -- Keep evidence that relates to free type variables in the goal.
-     -- && not (isEmptyVarSet (goalTyVars `intersectVarSet` tyCoVarsOfType (varType v))) -- see issue #20
-   -- freeIds = filter isId (uniqSetToList (exprFreeVars dict))
-   -- freeIdTys = varType <$> freeIds
-   goalTyVars = tyCoVarsOfType goalTy
+     && not (isEmptyVarSet (goalTyVars `intersectVarSet` tyCoVarsOfType (varType v))) -- see issue #20
    reassemble (i,bnds) =
      -- pprTrace' "buildDictionary" (ppr goalTy $$ text "-->" $$ ppr dict) $
      -- pprTrace' "buildDictionary inScope" (ppr (fst inScope)) $
@@ -265,8 +248,8 @@ mapBind tid texpr (Rec pairs) =
 
 markBinds :: [CoreBind] -> [CoreBind]
 markBinds binds =
-  let vars = concat (map binderIds binds)
-      subst = extendIdSubstList emptySubst (map (\ var -> (var, varToCoreExpr (markDictId var))) vars)
+  let ids = concat (map binderIds binds)
+      subst = extendIdSubstList emptySubst (map (\ id -> (id, varToCoreExpr (markDictId id))) ids)
   in map (mapBind markDictId (substExpr (text "dict rename") subst)) binds
 
 hasCoercionHole :: Data t => t -> Bool
